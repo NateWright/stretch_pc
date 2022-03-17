@@ -15,6 +15,7 @@
 #include <pcl/filters/filter_indices.h> // for pcl::removeNaNFromPointCloud
 #include <pcl/segmentation/region_growing_rgb.h>
 #include <pcl/common/distances.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 using namespace std::chrono_literals;
 
@@ -28,15 +29,23 @@ private:
 
   std::vector<pcl::PointIndices> clusters;
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud;
+  std::string targetFrame;
+  tf2_ros::Buffer tfBuffer;
+  tf2_ros::TransformListener *tfListener;
 public:
   pc(){
+    tfListener = new tf2_ros::TransformListener(tfBuffer);
     input = node.subscribe<sensor_msgs::PointCloud2>("/realsense/depth/color/points", 1, &pc::segmentation, this);
     pointClicked = node.subscribe<geometry_msgs::PointStamped>("/clicked_point", 1, &pc::pointPickingEventOccurred, this);
 
     chatter_pub = node.advertise<sensor_msgs::PointCloud2>("chatter", 1000);
   }
+  ~pc(){
+    delete tfListener;
+  }
   void segmentation(sensor_msgs::PointCloud2 input){
-    ROS_INFO("%s", input.header.frame_id.c_str());
+    targetFrame = input.header.frame_id;
+    // ROS_INFO("%s", input.header.frame_id.c_str());
     pcl::PCLPointCloud2 pcl_pc2;
     pcl_conversions::toPCL(input,pcl_pc2);
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -72,21 +81,23 @@ public:
   }
   void pointPickingEventOccurred (geometry_msgs::PointStamped inputPoint)
   {
-    tf2_ros::Buffer tfBuffer;
-    tf2_ros::TransformListener tfListener(tfBuffer);
-    https://answers.ros.org/question/215485/how-to-transform-a-pointstamped-from-a-frame-to-another/
-    tfBuffer.transform("camera_depth_optical_frame", )
-    geometry_msgs::Point p(inputPoint.point);
-    geometry_msgs::Point point = tfBuffer.transform<geometry_msgs::Point>(p, "camera_depth_optical_frame");
-    ROS_INFO("%s", point.header.frame_id.c_str());
+    // https://answers.ros.org/question/215485/how-to-transform-a-pointstamped-from-a-frame-to-another/
+    ROS_INFO("%s", tfBuffer.lookupTransform(targetFrame, "odom", ros::Time(0)).header.frame_id.c_str());
+    geometry_msgs::PointStamped tfPoint = tfBuffer.transform(inputPoint, targetFrame);
+    // geometry_msgs::PointStamped tfPoint;
+    // ROS_INFO("%s", inputPoint.header.frame_id.c_str());
+    // tfBuffer.transform(inputPoint, tfPoint, targetFrame, ros::Duration(10));
+    // geometry_msgs::Point p(inputPoint.point);
+    // geometry_msgs::Point point = tfBuffer.transform<geometry_msgs::Point>(p, "camera_depth_optical_frame");
+    ROS_INFO("%s", tfPoint.header.frame_id.c_str());
     input.shutdown();
     std::cout << "[INFO] Point picking event occurred." << std::endl;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr output (new pcl::PointCloud<pcl::PointXYZRGB>);
 
     float x, y, z;
-    x = point.point.x;
-    y = point.point.y;
-    z = point.point.z;
+    x = tfPoint.point.x;
+    y = tfPoint.point.y;
+    z = tfPoint.point.z;
 
     for (pcl::PointIndices p : clusters)
     {
@@ -104,7 +115,7 @@ public:
     }
     sensor_msgs::PointCloud2 p;
     pcl::toROSMsg(*output.get(), p);
-    p.header = point.header;
+    p.header = tfPoint.header;
     chatter_pub.publish(p);
     ROS_INFO("done cloud update");
   }

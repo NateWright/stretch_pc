@@ -16,6 +16,7 @@
 #include <pcl/segmentation/region_growing_rgb.h>
 #include <pcl/common/distances.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <yaml-cpp/yaml.h>
 
 using namespace std::chrono_literals;
 
@@ -23,19 +24,26 @@ class pc
 {
 private:
   ros::NodeHandle node;
+
+  std::string pointCloudTopic;
   ros::Subscriber input;
   ros::Publisher chatter_pub;
   ros::Subscriber pointClicked;
 
   std::vector<pcl::PointIndices> clusters;
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud;
+
+  float precision;
   std::string targetFrame;
   tf2_ros::Buffer tfBuffer;
   tf2_ros::TransformListener *tfListener;
 public:
-  pc(){
+  pc(std::string pointCloudTopic, float precision){
+    this->pointCloudTopic = pointCloudTopic;
+    this->precision = precision;
+
     tfListener = new tf2_ros::TransformListener(tfBuffer);
-    input = node.subscribe<sensor_msgs::PointCloud2>("/realsense/depth/color/points", 1, &pc::segmentation, this);
+    input = node.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 1, &pc::segmentation, this);
     pointClicked = node.subscribe<geometry_msgs::PointStamped>("/clicked_point", 1, &pc::pointPickingEventOccurred, this);
 
     chatter_pub = node.advertise<sensor_msgs::PointCloud2>("chatter", 1000);
@@ -81,17 +89,12 @@ public:
   }
   void pointPickingEventOccurred (geometry_msgs::PointStamped inputPoint)
   {
-    // https://answers.ros.org/question/215485/how-to-transform-a-pointstamped-from-a-frame-to-another/
-    ROS_INFO("%s", tfBuffer.lookupTransform(targetFrame, "odom", ros::Time(0)).header.frame_id.c_str());
     geometry_msgs::PointStamped tfPoint = tfBuffer.transform(inputPoint, targetFrame);
-    // geometry_msgs::PointStamped tfPoint;
-    // ROS_INFO("%s", inputPoint.header.frame_id.c_str());
-    // tfBuffer.transform(inputPoint, tfPoint, targetFrame, ros::Duration(10));
-    // geometry_msgs::Point p(inputPoint.point);
-    // geometry_msgs::Point point = tfBuffer.transform<geometry_msgs::Point>(p, "camera_depth_optical_frame");
-    ROS_INFO("%s", tfPoint.header.frame_id.c_str());
+
     input.shutdown();
+
     std::cout << "[INFO] Point picking event occurred." << std::endl;
+
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr output (new pcl::PointCloud<pcl::PointXYZRGB>);
 
     float x, y, z;
@@ -105,7 +108,7 @@ public:
       for (const auto& idx : p.indices){
         cloud_cluster->push_back ((*colored_cloud)[idx]);
         // ROS_INFO("%f",pcl::euclideanDistance(pcl::PointXYZ(x,y,z), pcl::PointXYZ(cloud_cluster->back().x, cloud_cluster->back().y, cloud_cluster->back().z)));
-        if(pcl::euclideanDistance(pcl::PointXYZ(x,y,z), pcl::PointXYZ(cloud_cluster->back().x, cloud_cluster->back().y, cloud_cluster->back().z)) < 2){
+        if(pcl::euclideanDistance(pcl::PointXYZ(x,y,z), pcl::PointXYZ(cloud_cluster->back().x, cloud_cluster->back().y, cloud_cluster->back().z)) < precision){
           output = cloud_cluster;
         }
       }
@@ -113,6 +116,7 @@ public:
       cloud_cluster->height = 1;
       cloud_cluster->is_dense = true;
     }
+
     sensor_msgs::PointCloud2 p;
     pcl::toROSMsg(*output.get(), p);
     p.header = tfPoint.header;
@@ -128,7 +132,9 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "pointcloud_translation");
   ros::NodeHandlePtr n;
 
-  pc p;
+  YAML::Node config = YAML::LoadFile("config/params.yaml");
+
+  pc p(config["pointCloudTopic"].as<std::string>(), config["pointCloudTopic"].as<float>());
   
   ros::Rate loop_rate(10);
   while (ros::ok())

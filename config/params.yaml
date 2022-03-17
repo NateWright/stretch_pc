@@ -1,0 +1,2 @@
+pointCloudTopic: "/realsense/depth/color/points"
+precision: 0.01

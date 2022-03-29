@@ -12,7 +12,6 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_ros
   roscpp
 )
-pkg_check_modules(YAMLCPP REQUIRED yaml-cpp>=0.5)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -120,7 +119,6 @@ include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
-  ${YAMLCPP_INCLUDE_DIRS}
 )
 
 link_directories(${PCL_LIBRARY_DIRS})
@@ -155,7 +153,6 @@ add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catk
 target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
-  ${YAMLCPP_LIBRARIES}
 )
 
 #############

@@ -1,0 +1,5 @@
+<launch>
+    <node name="stretch_pc" pkg="stretch_pc" type="stretch_pc_node" respawn="true">
+        <rosparam file="$(find stretch_pc)/config/params.yaml" command="load"/>
+    </node>
+</launch>

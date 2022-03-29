@@ -1,2 +1,2 @@
-pointCloudTopic: "/realsense/depth/color/points"
+pointCloudTopic: "/camera/depth/color/points"
 precision: 0.01

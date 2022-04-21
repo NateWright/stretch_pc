@@ -138,5 +138,7 @@ class pc {
         pcl::toROSMsg(*output.get(), p);
         p.header = tfPoint.header;
         pointCloudPub.publish(p);
+
+        sourcePointcloud = node.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 1, &pc::segmentation, this);
     }
 };

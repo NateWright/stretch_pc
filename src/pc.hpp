@@ -6,6 +6,7 @@
 #include <pcl/search/search.h>
 #include <pcl/segmentation/region_growing_rgb.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl_ros/point_cloud.h>
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Bool.h>
@@ -49,26 +50,20 @@ class pc {
         this->precision = precision;
 
         tfListener = new tf2_ros::TransformListener(tfBuffer);
-        sourcePointcloud = node.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 1, &pc::segmentation, this);
+        sourcePointcloud = node.subscribe(pointCloudTopic, 1, &pc::segmentation, this);
         pointClicked = node.subscribe<geometry_msgs::PointStamped>("/clicked_point", 1, &pc::pointPickingEventOccurred, this);
-        resetSub = node.subscribe<std_msgs::Bool>("/stretch_pc/reset", 1, &pc::reset, this);
 
         pointCloudPub = node.advertise<sensor_msgs::PointCloud2>("/stretch_pc/pointcloud", 1000);
         pointPub = node.advertise<geometry_msgs::PointStamped>("/stretch_pc/centerPoint", 1000);
     }
     ~pc() { delete tfListener; }
-    void reset(std_msgs::Bool b);
-    void segmentation(sensor_msgs::PointCloud2 input);
+    void segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc);
     void pointPickingEventOccurred(geometry_msgs::PointStamped inputPoint);
 };
 
-void pc::segmentation(sensor_msgs::PointCloud2 input) {
-    targetFrame = input.header.frame_id;
-
-    pcl::PCLPointCloud2 pcl_pc2;
-    pcl_conversions::toPCL(input, pcl_pc2);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::fromPCLPointCloud2(pcl_pc2, *cloud);
+void pc::segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc) {
+    targetFrame = pc.get()->header.frame_id;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = pc;
 
     pcl::search::Search<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
     pcl::IndicesPtr indices(new std::vector<int>);
@@ -87,10 +82,9 @@ void pc::segmentation(sensor_msgs::PointCloud2 input) {
 
     colored_cloud = reg.getColoredCloud();
 
-    sensor_msgs::PointCloud2 p;
-    pcl::toROSMsg(*colored_cloud.get(), p);
-    p.header = input.header;
-    pointCloudPub.publish(p);
+    colored_cloud.get()->header = pc.get()->header;
+
+    pointCloudPub.publish(colored_cloud);
 
     return;
 }
@@ -114,7 +108,8 @@ void pc::pointPickingEventOccurred(geometry_msgs::PointStamped inputPoint) {
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
         for (const auto& idx : p.indices) {
             cloud_cluster->push_back((*colored_cloud)[idx]);
-            if (pcl::euclideanDistance(pcl::PointXYZ(x, y, z), pcl::PointXYZ(cloud_cluster->back().x, cloud_cluster->back().y, cloud_cluster->back().z)) < precision) {
+            if (pcl::euclideanDistance(pcl::PointXYZ(x, y, z), pcl::PointXYZ(cloud_cluster->back().x, cloud_cluster->back().y, cloud_cluster->back().z)) <
+                precision) {
                 output = cloud_cluster;
                 cloud_cluster->width = cloud_cluster->size();
                 cloud_cluster->height = 1;
@@ -150,9 +145,6 @@ void pc::pointPickingEventOccurred(geometry_msgs::PointStamped inputPoint) {
     pcl::toROSMsg(*output.get(), p);
     p.header = tfPoint.header;
     pointCloudPub.publish(p);
-    sourcePointcloud = node.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 1, &pc::segmentation, this);
-}
 
-void pc::reset(std_msgs::Bool b) {
-    sourcePointcloud = node.subscribe<sensor_msgs::PointCloud2>(pointCloudTopic, 1, &pc::segmentation, this);
+    sourcePointcloud = node.subscribe(pointCloudTopic, 1, &pc::segmentation, this);
 }

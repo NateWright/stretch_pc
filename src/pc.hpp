@@ -25,48 +25,45 @@ using namespace std::chrono_literals;
 class pc {
    private:
     // Setup
-    ros::NodeHandle node;
-    std::string pointCloudTopic;
-    float precision;
+    ros::NodeHandlePtr nh_;
+    std::string pointCloudTopic_;
 
     // Publishers and Subscribers
-    ros::Subscriber sourcePointcloud;
-    ros::Subscriber pointClicked;
-    ros::Subscriber resetSub;
-    ros::Publisher pointCloudPub;
-    ros::Publisher clusterPub;
-    ros::Publisher pointPub;
+    ros::Subscriber sourcePointcloud_;
+    ros::Subscriber pointClicked_;
+    ros::Subscriber resetSub_;
+    ros::Publisher pointCloudPub_;
+    ros::Publisher clusterPub_;
+    ros::Publisher pointPub_;
 
     // Indicies and Main Cloud
-    std::vector<pcl::PointIndices> clusters;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud;
+    std::vector<pcl::PointIndices> clusters_;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud_;
 
     // Frames for publishing
-    std::string targetFrame;
-    tf2_ros::Buffer tfBuffer;
-    tf2_ros::TransformListener* tfListener;
+    tf2_ros::Buffer tfBuffer_;
+    tf2_ros::TransformListener* tfListener_;
 
    public:
-    explicit pc(std::string pointCloudTopic, float precision) {
-        this->pointCloudTopic = pointCloudTopic;
-        this->precision = precision;
-
-        tfListener = new tf2_ros::TransformListener(tfBuffer);
-        sourcePointcloud = node.subscribe(pointCloudTopic, 1, &pc::segmentation, this);
-        ROS_INFO_STREAM("Point cloud topic: " << pointCloudTopic);
-        pointClicked = node.subscribe("/clicked_point", 1, &pc::pointPickingEventOccurred, this);
-
-        pointCloudPub = node.advertise<sensor_msgs::PointCloud2>("/stretch_pc/pointcloud", 1000);
-        clusterPub = node.advertise<sensor_msgs::PointCloud2>("/stretch_pc/cluster", 1000);
-        pointPub = node.advertise<geometry_msgs::PointStamped>("/stretch_pc/centerPoint", 1000);
+    explicit pc(ros::NodeHandlePtr nh, std::string pointCloudTopic);
+    ~pc() {
+        delete tfListener_;
     }
-    ~pc() { delete tfListener; }
     void segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc);
     void pointPickingEventOccurred(const geometry_msgs::PointStamped::ConstPtr);
 };
+pc::pc(ros::NodeHandlePtr nh, std::string pointCloudTopic) : nh_(nh), pointCloudTopic_(pointCloudTopic) {
+    tfListener_ = new tf2_ros::TransformListener(tfBuffer_);
+    sourcePointcloud_ = nh_->subscribe(pointCloudTopic, 1, &pc::segmentation, this);
+    ROS_INFO_STREAM("Point cloud topic: " << pointCloudTopic);
+    pointClicked_ = nh_->subscribe("/clicked_point", 1, &pc::pointPickingEventOccurred, this);
+
+    pointCloudPub_ = nh_->advertise<sensor_msgs::PointCloud2>("/stretch_pc/pointcloud", 1000);
+    clusterPub_ = nh_->advertise<sensor_msgs::PointCloud2>("/stretch_pc/cluster", 1000);
+    pointPub_ = nh_->advertise<geometry_msgs::PointStamped>("/stretch_pc/centerPoint", 1000);
+}
 
 void pc::segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc) {
-    targetFrame = pc->header.frame_id;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = pc;
 
     pcl::search::Search<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
@@ -82,22 +79,22 @@ void pc::segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc) {
     reg.setRegionColorThreshold(5);
     reg.setMinClusterSize(600);
 
-    reg.extract(clusters);
+    reg.extract(clusters_);
 
-    colored_cloud = reg.getColoredCloud();
+    colored_cloud_ = reg.getColoredCloud();
 
-    colored_cloud->header.frame_id = targetFrame;
+    colored_cloud_->header.frame_id = pc->header.frame_id;
 
-    pointCloudPub.publish(colored_cloud);
+    pointCloudPub_.publish(colored_cloud_);
 
     return;
 }
 
 void pc::pointPickingEventOccurred(const geometry_msgs::PointStamped::ConstPtr inputPoint) {
     ROS_INFO_STREAM("Picking event occurred");
-    sourcePointcloud.shutdown();
+    sourcePointcloud_.shutdown();
 
-    geometry_msgs::PointStamped tfPoint = tfBuffer.transform(*inputPoint, targetFrame);
+    geometry_msgs::PointStamped tfPoint = tfBuffer_.transform(*inputPoint, colored_cloud_->header.frame_id);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
 
@@ -110,17 +107,17 @@ void pc::pointPickingEventOccurred(const geometry_msgs::PointStamped::ConstPtr i
     bool done = false;
 
     pcl::KdTreeFLANN<pcl::PointXYZRGB> kdtree;
-    kdtree.setInputCloud(colored_cloud);
+    kdtree.setInputCloud(colored_cloud_);
     std::vector<int> pointIdxNKNSearch(1);
     std::vector<float> pointNKNSquaredDistance(1);
 
     kdtree.nearestKSearch(p, 1, pointIdxNKNSearch, pointNKNSquaredDistance);
     int pos = pointIdxNKNSearch[0];
 
-    for (pcl::PointIndices p : clusters) {
+    for (pcl::PointIndices p : clusters_) {
         cloud_cluster.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
         for (const auto& idx : p.indices) {
-            cloud_cluster->push_back((*colored_cloud)[idx]);
+            cloud_cluster->push_back((*colored_cloud_)[idx]);
             if (idx == pos) {
                 cloud_cluster->width = cloud_cluster->size();
                 cloud_cluster->height = 1;
@@ -150,10 +147,10 @@ void pc::pointPickingEventOccurred(const geometry_msgs::PointStamped::ConstPtr i
     pStamped.point.y = y / count;
     pStamped.point.z = z / count;
     pStamped.header = tfPoint.header;
-    pointPub.publish(pStamped);
+    pointPub_.publish(pStamped);
 
-    cloud_cluster->header.frame_id = colored_cloud->header.frame_id;
-    clusterPub.publish(cloud_cluster);
+    cloud_cluster->header.frame_id = colored_cloud_->header.frame_id;
+    clusterPub_.publish(cloud_cluster);
 
-    sourcePointcloud = node.subscribe(pointCloudTopic, 1, &pc::segmentation, this);
+    sourcePointcloud_ = nh_->subscribe(pointCloudTopic_, 1, &pc::segmentation, this);
 }

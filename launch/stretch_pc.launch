@@ -1,5 +1,6 @@
 <launch>
+    <arg name="point_cloud_topic" />
     <node name="stretch_pc" pkg="stretch_pc" type="stretch_pc_node" respawn="true" output="screen">
-        <rosparam file="$(find stretch_pc)/config/params.yaml" command="load"/>
+        <param name="pointCloudTopic" type="string" value="$(arg point_cloud_topic)"></param>
     </node>
 </launch>

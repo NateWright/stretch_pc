@@ -17,6 +17,7 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <atomic>
 
 #pragma once
 
@@ -35,6 +36,9 @@ class pc {
     ros::Publisher pointCloudPub_;
     ros::Publisher clusterPub_;
     ros::Publisher pointPub_;
+    ros::Publisher pointRePub_;
+
+    std::atomic<bool> hasCloud_;
 
     // Indicies and Main Cloud
     std::vector<pcl::PointIndices> clusters_;
@@ -52,7 +56,7 @@ class pc {
     void segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc);
     void pointPickingEventOccurred(const geometry_msgs::PointStamped::ConstPtr);
 };
-pc::pc(ros::NodeHandlePtr nh, std::string pointCloudTopic) : nh_(nh), pointCloudTopic_(pointCloudTopic) {
+pc::pc(ros::NodeHandlePtr nh, std::string pointCloudTopic) : nh_(nh), pointCloudTopic_(pointCloudTopic), hasCloud_(false) {
     tfListener_ = new tf2_ros::TransformListener(tfBuffer_);
     sourcePointcloud_ = nh_->subscribe(pointCloudTopic, 1, &pc::segmentation, this);
     ROS_INFO_STREAM("Point cloud topic: " << pointCloudTopic);
@@ -61,6 +65,7 @@ pc::pc(ros::NodeHandlePtr nh, std::string pointCloudTopic) : nh_(nh), pointCloud
     pointCloudPub_ = nh_->advertise<sensor_msgs::PointCloud2>("/stretch_pc/pointcloud", 1000);
     clusterPub_ = nh_->advertise<sensor_msgs::PointCloud2>("/stretch_pc/cluster", 1000);
     pointPub_ = nh_->advertise<geometry_msgs::PointStamped>("/stretch_pc/centerPoint", 1000);
+    pointRePub_ = nh_->advertise<geometry_msgs::PointStamped>("/clicked_point", 1);
 }
 
 void pc::segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc) {
@@ -86,11 +91,16 @@ void pc::segmentation(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& pc) {
     colored_cloud_->header.frame_id = pc->header.frame_id;
 
     pointCloudPub_.publish(colored_cloud_);
-
+    hasCloud_ = true;
     return;
 }
 
 void pc::pointPickingEventOccurred(const geometry_msgs::PointStamped::ConstPtr inputPoint) {
+    if(!hasCloud_){
+        pointRePub_.publish(inputPoint);
+        return;
+    }
+    hasCloud_ = false;
     ROS_INFO_STREAM("Picking event occurred");
     sourcePointcloud_.shutdown();
 
